@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Culture Map - 世界の文化・歴史学習プロトタイプ</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <style>
+        /* スクロールバーのカスタマイズ */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Leafletマップカスタマイズ */
+        #map {
+            width: 100%;
+            height: 100%;
+            background: #0f172a; /* ロード前の背景色 */
+        }
+
+        /* 既存の地図ズームコントロールを非表示にし、独自UIを使用 */
+        .leaflet-control-zoom {
+            display: none !important;
+        }
+        .leaflet-attribution-control {
+            background: rgba(15, 23, 42, 0.85) !important;
+            color: #cbd5e1 !important;
+            font-size: 10px !important;
+            border-top-left-radius: 8px;
+            border: 1px solid rgba(51, 65, 85, 0.5);
+            backdrop-blur: 4px;
+        }
+        .leaflet-attribution-control a {
+            color: #f59e0b !important;
+            font-weight: bold;
+        }
+
+        /* カスタムピン（マーカー）のアニメーション効果 */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.6); opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { transform: scale(1.8); opacity: 0; }
+        }
+        
+        .custom-pin-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            width: 40px !important;
+            height: 40px !important;
+        }
+
+        .custom-pin {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            border: 2px solid white;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 18px;
+            cursor: pointer;
+            position: relative;
+            z-index: 2;
+        }
+
+        .custom-pin:hover {
+            transform: scale(1.2) translateY(-2px);
+            z-index: 10;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.6);
+        }
+
+        /* アクティブなピンのパルスリングアニメーション */
+        .custom-pin-active {
+            border-color: #fbbf24 !important; /* より鮮やかなアンバーゴールド */
+            box-shadow: 0 0 20px #fbbf24, 0 4px 12px rgba(0,0,0,0.5);
+            transform: scale(1.15);
+        }
+
+        .custom-pin-active::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            background: inherit;
+            border-radius: 50%;
+            z-index: -1;
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.610, 0.355, 1) infinite;
+        }
+
+        /* 地図上の簡易国名ラベル */
+        .pin-label {
+            position: absolute;
+            bottom: -24px;
+            background: rgba(15, 23, 42, 0.95);
+            color: #f1f5f9;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            border: 1px solid rgba(148, 163, 184, 0.4);
+            white-space: nowrap;
+            font-weight: 800;
+            pointer-events: none;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans overflow-hidden h-screen flex flex-col">
+
+    <!-- ヘッダー -->
+    <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex items-center justify-between z-10 shrink-0 shadow-md">
+        <div class="flex items-center space-x-3">
+            <div class="bg-amber-500 text-slate-900 p-2 rounded-lg shadow-inner">
+                <i data-lucide="globe" class="w-6 h-6 animate-spin-slow"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-black tracking-wide text-amber-400">CultureAtlas</h1>
+                <p class="text-xs text-slate-400">世界のカラフルなマップから学ぶ、各地の知られざる文化と歴史</p>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-4">
+            <!-- フィルター簡易サマリー -->
+            <div class="hidden md:flex items-center bg-slate-900/60 rounded-full px-4 py-1.5 border border-slate-750 text-xs text-slate-300">
+                <span class="flex h-2 w-2 relative mr-2">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                現在 <span class="font-bold text-amber-400 mx-1" id="active-pins-count">8</span> 件の文化を発見中
+            </div>
+
+            <button onclick="toggleFormModal(true)" class="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-900 font-black px-4 py-2 rounded-lg shadow-lg flex items-center space-x-2 transition text-sm">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                <span>エピソードを投稿</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- メイン領域 -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- 左側：コントロールパネル＆フィルター -->
+        <aside class="absolute top-4 left-4 z-[1000] w-80 bg-slate-800/95 backdrop-blur-md rounded-2xl border border-slate-700 shadow-2xl p-4 flex flex-col space-y-4 max-h-[calc(100vh-120px)] overflow-y-auto">
+            <div>
+                <h2 class="text-sm font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <i data-lucide="sliders-horizontal" class="w-4 h-4 text-amber-400"></i> 地図から探す・絞り込む
+                </h2>
+                <p class="text-xs text-slate-400 mb-3">地図を自由にドラッグやズームして探索しましょう。右下のスイッチで地図の色を変えられます！</p>
+            </div>
+
+            <!-- 検索ボックス -->
+            <div class="relative">
+                <i data-lucide="search" class="w-4 h-4 absolute left-3 top-3 text-slate-400"></i>
+                <input type="text" id="search-input" oninput="filterPins()" placeholder="国名やキーワードで探す..." class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition">
+            </div>
+
+            <!-- カテゴリフィルター -->
+            <div class="space-y-2">
+                <label class="text-xs font-bold text-slate-300">カテゴリ</label>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="setCategoryFilter('all')" id="cat-all" class="cat-filter-btn px-3 py-2 rounded-lg text-xs font-semibold text-center border bg-amber-500/20 border-amber-500/50 text-amber-300 transition">
+                        すべて
+                    </button>
+                    <button onclick="setCategoryFilter('food')" id="cat-food" class="cat-filter-btn px-3 py-2 rounded-lg text-xs font-semibold text-center border bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-750 transition">
+                        🍔 食文化
+                    </button>
+                    <button onclick="setCategoryFilter('taboo')" id="cat-taboo" class="cat-filter-btn px-3 py-2 rounded-lg text-xs font-semibold text-center border bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-750 transition">
+                        🚫 タブー・マナー
+                    </button>
+                    <button onclick="setCategoryFilter('history')" id="cat-history" class="cat-filter-btn px-3 py-2 rounded-lg text-xs font-semibold text-center border bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-750 transition">
+                        📜 歴史・伝統
+                    </button>
+                    <button onclick="setCategoryFilter('daily')" id="cat-daily" class="cat-filter-btn px-3 py-2 rounded-lg text-xs font-semibold text-center border bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-750 transition">
+                        🏠 日常・不思議
+                    </button>
+                </div>
+            </div>
+
+            <!-- 地域ショートカット -->
+            <div class="space-y-2 border-t border-slate-700/50 pt-3">
+                <label class="text-xs font-bold text-slate-300">地域にジャンプ</label>
+                <div class="flex flex-wrap gap-1.5">
+                    <button onclick="jumpToRegion('asia')" class="bg-slate-900/60 hover:bg-amber-500/10 hover:text-amber-300 px-2.5 py-1 rounded text-xs border border-slate-750 transition">🌏 アジア</button>
+                    <button onclick="jumpToRegion('europe')" class="bg-slate-900/60 hover:bg-amber-500/10 hover:text-amber-300 px-2.5 py-1 rounded text-xs border border-slate-750 transition">🇪🇺 ヨーロッパ</button>
+                    <button onclick="jumpToRegion('america')" class="bg-slate-900/60 hover:bg-amber-500/10 hover:text-amber-300 px-2.5 py-1 rounded text-xs border border-slate-750 transition">🌎 アメリカ</button>
+                    <button onclick="jumpToRegion('africa')" class="bg-slate-900/60 hover:bg-amber-500/10 hover:text-amber-300 px-2.5 py-1 rounded text-xs border border-slate-750 transition">🌍 アフリカ</button>
+                    <button onclick="jumpToRegion('oceania')" class="bg-slate-900/60 hover:bg-amber-500/10 hover:text-amber-300 px-2.5 py-1 rounded text-xs border border-slate-750 transition">🐨 オセアニア</button>
+                </div>
+            </div>
+
+            <!-- ユーザーマイページ機能（モック） -->
+            <div class="border-t border-slate-700/50 pt-4">
+                <div class="flex items-center space-x-3 mb-3">
+                    <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=100&q=80" alt="Avatar" class="w-8 h-8 rounded-full border border-amber-500">
+                    <div>
+                        <p class="text-xs font-bold text-slate-200">ゲスト冒険者 さん</p>
+                        <p class="text-[10px] text-emerald-400">現在ログイン中 (オンライン)</p>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-2 text-center text-xs">
+                    <div class="bg-slate-900/80 p-2 rounded border border-slate-750">
+                        <span class="block font-bold text-amber-400" id="user-posts-count">0</span>
+                        <span class="text-slate-400 text-[10px]">投稿エピソード</span>
+                    </div>
+                    <div class="bg-slate-900/80 p-2 rounded border border-slate-750 hover:border-pink-500/30 cursor-pointer transition" onclick="showBookmarks()">
+                        <span class="block font-bold text-pink-400" id="user-bookmarks-count">2</span>
+                        <span class="text-slate-400 text-[10px]">ブックマーク</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- チュートリアル -->
+            <div class="bg-amber-500/5 border border-amber-500/10 p-2.5 rounded-lg text-[11px] text-amber-200/90 flex items-start space-x-2">
+                <i data-lucide="help-circle" class="w-4 h-4 shrink-0 mt-0.5 text-amber-400"></i>
+                <span><strong>Tips:</strong> 地図をダブルクリックすると、本物の緯度経度を取得してそこにカスタムピンを直接立てられます！</span>
+            </div>
+        </aside>
+
+        <!-- 地図コントロール＆カラー切替（右下） -->
+        <div class="absolute bottom-6 right-6 z-[1000] flex flex-col space-y-4 items-end">
+            <!-- 独自デザインのマップカラーモード切替コントローラー -->
+            <div class="bg-slate-800/95 backdrop-blur-md rounded-2xl border border-slate-700 shadow-2xl p-2.5 flex items-center space-x-2">
+                <span class="text-[11px] font-bold text-slate-300 px-2 flex items-center gap-1">
+                    <i data-lucide="palette" class="w-3.5 h-3.5 text-amber-400"></i> 地図カラー
+                </span>
+                <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-750 text-xs">
+                    <button onclick="changeMapStyle('street')" id="style-street" class="px-3 py-1.5 rounded-lg font-bold transition-all text-slate-400 hover:text-white">
+                        🗺️ ストリート
+                    </button>
+                    <button onclick="changeMapStyle('satellite')" id="style-satellite" class="px-3 py-1.5 rounded-lg font-bold transition-all text-slate-400 hover:text-white">
+                        🛰️ サテライト
+                    </button>
+                    <button onclick="changeMapStyle('dark')" id="style-dark" class="px-3 py-1.5 rounded-lg font-bold transition-all text-slate-400 hover:text-white">
+                        🌌 ダーク
+                    </button>
+                </div>
+            </div>
+
+            <!-- 地図操作ボタン -->
+            <div class="flex space-x-2">
+                <button onclick="resetMap()" class="w-12 h-12 bg-slate-800/90 text-slate-150 hover:bg-slate-700 hover:text-white rounded-xl border border-slate-700 shadow-xl flex items-center justify-center transition" title="位置をリセット">
+                    <i data-lucide="compass" class="w-5 h-5"></i>
+                </button>
+                <button onclick="zoomOutMap()" class="w-12 h-12 bg-slate-800/90 text-slate-150 hover:bg-slate-700 hover:text-white rounded-xl border border-slate-700 shadow-xl flex items-center justify-center transition">
+                    <i data-lucide="minus" class="w-5 h-5"></i>
+                </button>
+                <button onclick="zoomInMap()" class="w-12 h-12 bg-slate-800/90 text-slate-150 hover:bg-slate-700 hover:text-white rounded-xl border border-slate-700 shadow-xl flex items-center justify-center transition">
+                    <i data-lucide="plus" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- インタラクティブマップ本体 -->
+        <div class="flex-1 h-full relative" id="map-viewport">
+            <div id="map"></div>
+        </div>
+
+        <!-- 右側：エピソード詳細パネル -->
+        <main id="detail-panel" class="w-0 overflow-hidden bg-slate-800 border-l border-slate-700 shadow-2xl transition-all duration-300 ease-in-out flex flex-col z-[1001]">
+            <div class="p-6 flex flex-col h-full overflow-y-auto" id="detail-content">
+                <!-- 初期表示プレースホルダー -->
+                <div class="flex-1 flex flex-col items-center justify-center text-center text-slate-400 space-y-4">
+                    <i data-lucide="map-pin" class="w-16 h-16 text-slate-600 animate-bounce"></i>
+                    <div>
+                        <h3 class="font-bold text-slate-200">文化に触れてみよう</h3>
+                        <p class="text-xs px-6">地図上のアイコンをクリックするか、特定のピンを探して情報を開いてみてください。</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+    </div>
+
+    <!-- 投稿モーダルウィンドウ -->
+    <div id="post-modal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="px-6 py-4 border-b border-slate-700 bg-slate-850 flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                    <i data-lucide="edit-3" class="text-amber-500 w-5 h-5"></i>
+                    <h3 class="font-bold text-slate-100">旅のエピソードを投稿する</h3>
+                </div>
+                <button onclick="toggleFormModal(false)" class="text-slate-400 hover:text-white transition">
+                    <i data-lucide="x" class="w-6 h-6"></i>
+                </button>
+            </div>
+
+            <form id="episode-form" onsubmit="submitEpisode(event)" class="p-6 overflow-y-auto space-y-4">
+                <!-- 位置指定ヒント -->
+                <div class="bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs flex items-center space-x-3">
+                    <i data-lucide="map-pin" class="text-emerald-400 w-6 h-6 shrink-0"></i>
+                    <div>
+                        <p class="font-semibold text-slate-300">ピン位置設定（緯度経度）</p>
+                        <p class="text-slate-400" id="form-location-text">（地図上の任意の位置をダブルクリックして選んでください）</p>
+                        <input type="hidden" id="form-lat" value="35.68">
+                        <input type="hidden" id="form-lng" value="139.76">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-300 mb-1.5">紹介する国名 <span class="text-rose-500">*</span></label>
+                    <input type="text" id="form-country" required placeholder="例：イタリア、タイ、ケニア など" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-300 mb-1.5">カテゴリ <span class="text-rose-500">*</span></label>
+                        <select id="form-category" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+                            <option value="food">🍔 食文化</option>
+                            <option value="taboo">🚫 タブー・マナー</option>
+                            <option value="history">📜 歴史・伝統</option>
+                            <option value="daily">🏠 日常・不思議</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-300 mb-1.5">地域 <span class="text-rose-500">*</span></label>
+                        <select id="form-region" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+                            <option value="asia">🌏 アジア</option>
+                            <option value="europe">🇪🇺 ヨーロッパ</option>
+                            <option value="america">🌎 アメリカ</option>
+                            <option value="africa">🌍 アフリカ</option>
+                            <option value="oceania">🐨 オセアニア</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-300 mb-1.5">エピソードのタイトル <span class="text-rose-500">*</span></label>
+                    <input type="text" id="form-title" required placeholder="例：ピザにパインを乗せてはいけない本気の理由" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-300 mb-1.5">文化・歴史・エピソード本文 <span class="text-rose-500">*</span></label>
+                    <textarea id="form-description" required rows="4" placeholder="旅行者が知っておくと感動するエピソードや、現地で驚いた独自の文化などを教えてください。詳しく書くほど喜ばれます！" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-300 mb-1.5">旅人のアドバイス・注意点</label>
+                    <input type="text" id="form-advice" placeholder="例：伝統レストランでは必ず取り分けをせず1人1枚注文すること" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-300 mb-1.5">現地でのおすすめ度</label>
+                        <select id="form-rating" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+                            <option value="5">⭐⭐⭐⭐⭐ 必見・超重要</option>
+                            <option value="4">⭐⭐⭐⭐ 普通におすすめ</option>
+                            <option value="3">⭐⭐⭐ 知っておくと役立つ</option>
+                            <option value="2">⭐⭐ 雑学レベル</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-300 mb-1.5">アイキャッチ画像URL</label>
+                        <input type="url" id="form-image" placeholder="https://example.com/image.jpg (任意)" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-amber-500">
+                    </div>
+                </div>
+
+                <div class="border-t border-slate-700 pt-4 flex items-center justify-end space-x-3">
+                    <button type="button" onclick="toggleFormModal(false)" class="px-4 py-2 text-sm text-slate-400 hover:text-white transition">キャンセル</button>
+                    <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-5 py-2 rounded-lg text-sm transition">ピンを立てて公開する</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- トースト通知 -->
+    <div id="toast" class="fixed top-6 right-6 z-[3000] transform translate-y-20 opacity-0 transition-all duration-300 ease-out bg-slate-800 border border-slate-700 px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 pointer-events-none">
+        <div id="toast-icon-bg" class="p-1.5 rounded-lg text-white">
+            <i id="toast-icon" data-lucide="check" class="w-5 h-5"></i>
+        </div>
+        <div>
+            <p id="toast-title" class="text-xs font-bold text-slate-200"></p>
+            <p id="toast-desc" class="text-[11px] text-slate-400"></p>
+        </div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- JavaScript ロジック -->
+    <script>
+        // サンプル初期エピソードデータ（緯度経度ベースにマッピング）
+        let episodes = [
+            {
+                id: 1,
+                country: "イタリア",
+                title: "カプチーノは午前11時まで！それを過ぎたら...",
+                description: "イタリアでは乳製品は消化が悪いと考えられており、重いミルクが入ったカプチーノは朝食の飲み物（ペストリーと一緒に）と決まっています。午後にカプチーノを頼むと、現地の人から「ランチの後にまた重いミルクを飲むの？」と不思議な顔をされます。ランチやディナーの後に頼むべきは純粋なエスプレッソです。",
+                advice: "どうしてもミルク入りを午後飲みたいときは『マッキャート』を頼みましょう。少量のミルクならOKとされています。",
+                category: "food",
+                region: "europe",
+                lat: 41.9028, lng: 12.4964, // ローマ
+                rating: 5,
+                likes: 34,
+                userLiked: false,
+                author: "旅行ライターTakashi",
+                image: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd?auto=format&fit=crop&w=400&q=80",
+                created_at: "2026/05/12"
+            },
+            {
+                id: 2,
+                country: "タイ",
+                title: "頭は「神聖な場所」！絶対に他人の頭を触ってはいけない",
+                description: "仏教国であるタイでは、頭部は身体の中で最も神聖で高い精神が宿る場所と信じられています。そのため、他人の頭に触れることは重大なマナー違反であり、侮辱行為とみなされます。可愛い子供であっても、不用意に頭を撫でてはいけません。逆に足（身体の最下部）は不浄とされ、足を人に向けるのもNGです。",
+                advice: "誤って他人の頭に手が触れてしまった場合は、すぐにワイ（合掌）をして『コートート（すみません）』と謝りましょう。",
+                category: "taboo",
+                region: "asia",
+                lat: 13.7563, lng: 100.5018, // バンコク
+                rating: 5,
+                likes: 42,
+                userLiked: false,
+                author: "バックパッカーYuki",
+                image: "https://images.unsplash.com/photo-1528127269322-539801943592?auto=format&fit=crop&w=400&q=80",
+                created_at: "2026/05/18"
+            },
+            {
+                id: 3,
+                country: "ケニア",
+                title: "お礼を言う代わりに『親指を立てる』マサイの挨拶",
+                description: "マサイ族をはじめケニアの一部地域では、言葉での「ありがとう」よりも、親指を立てるサムズアップのジェスチャー、あるいは伝統的な歌とジャンプを伴う挨拶が、最上級の敬意を示す表現になることがあります。また、伝統的には挨拶として相手の手に軽く唾を吐きかける（祝福の意味）習慣もありますが、観光客相手には基本握手です。",
+                advice: "都会のナイロビでは通常の英語やスワヒリ語（アサンテ＝ありがとう）で十分通じます！",
+                category: "history",
+                region: "africa",
+                lat: -1.2921, lng: 36.8219, // ナイロビ
+                rating: 4,
+                likes: 21,
+                userLiked: false,
+                author: "サファリマニアHideo",
+                image: "https://images.unsplash.com/photo-1489493887462-402b7264e919?auto=format&fit=crop&w=400&q=80",
+                created_at: "2026/05/20"
+            },
+            {
+                id: 4,
+                country: "メキシコ",
+                title: "死者の日は『お葬式』ではない！街中がガイコツと花で躍り狂う祭典",
+                description: "メキシコの『死者の日（Día de los Muertos）』は、亡くなった先祖を偲ぶ伝統行事ですが、日本のお盆のような静かな雰囲気とは正反対です。マリーゴールドの明るいオレンジの花と、カラフルなガイコツの装飾で街が溢れかえり、音楽とダンスで賑やかにお祝いします。死は恐怖ではなく、生の延長線上にあるものとして祝われます。",
+                advice: "10月31日〜11月2日頃にオアハカなどの都市を訪れると、人生観が変わるほどの素晴らしいパレードが見られます。",
+                category: "history",
+                region: "america",
+                lat: 17.0732, lng: -96.7266, // オアハカ
+                rating: 5,
+                likes: 56,
+                userLiked: false,
+                author: "ラテン音楽ファンElena",
+                image: "https://images.unsplash.com/photo-1506157786151-b8491531f063?auto=format&fit=crop&w=400&q=80",
+                created_at: "2026/05/25"
+            },
+            {
+                id: 5,
+                country: "アイスランド",
+                title: "エルフ（妖精）を本気で信じる人々。道路の建設計画が変わることも！",
+                description: "アイスランドの人口のかなりの割合が、岩や大自然の中に住む不可視の存在「ハルドルフォルク（隠された人々・エルフ）」の存在を信じています。エルフの居住地とされる岩や丘を破壊すると災害や事故が起きるとされており、道路建設のルートがエルフの岩を避けるように変更されることも珍しくありません。",
+                advice: "アイスランドを旅行中、現地の自然（奇岩や苔）をからかうような発言は避けましょう。自然への深いリスペクトがこの信仰に繋がっています。",
+                category: "daily",
+                region: "europe",
+                lat: 64.1466, lng: -21.9426, // レイキャビク
+                rating: 4,
+                likes: 19,
+                userLiked: false,
+                author: "北欧ホリックAnna",
+                image: "https://images.unsplash.com/photo-1504893524553-ac55fce698be?auto=format&fit=crop&w=400&q=80",
+                created_at: "2026/05/28"
+            },
+            {
+                id: 6,
+                country: "日本",
+                title: "蕎麦は「すする」のが最高の礼儀！でも海外では注意？",
+                description: "日本では、蕎麦やラーメンといった麺類を音を立ててすすること（ヌードルハラスメントと揶揄されることもありますが）は、麺と一緒に空気を吸い込むことで香りを最大限に引き出す伝統的な味わい方です。しかし、多くの欧米文化圏では「食事中に音を立てる」のは深刻なマナー違反とみなされるため、外国人旅行者は驚くことが多いです。",
+                advice: "海外からのお客様に蕎麦を勧める時は、『すすると美味しくなるんだよ』と文化の背景を説明してあげると喜ばれます。",
+                category: "food",
+                region: "asia",
+                lat: 35.6762, lng: 139.6503, // 東京
+                rating: 3,
+                likes: 15,
+                userLiked: false,
+                author: "そば職人Kei",
+                image: "https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=400&q=80",
+                created_at: "2026/06/01"
+            },
+            {
+                id: 7,
+                country: "オーストラリア",
+                title: "サンタクロースはサーフィンでやってくる！？真夏のクリスマス",
+                description: "南半球にあるオーストラリアでは、クリスマスは真夏にあたります。そのため、雪や煙突といった従来の冬のイメージではなく、サンタクロースはソリの代わりにサーフボードに乗り、Tシャツや水着姿で現れます。人々はビーチに集まり、シーフードのBBQを楽しんでクリスマスを祝うのが一般的です。",
+                advice: "12月にシドニーのボンダイビーチへ行くと、水着にサンタ帽を被った愉快なローカルたちに会えます！",
+                category: "daily",
+                region: "oceania",
+                lat: -33.8688, lng: 151.2093, // シドニー
+                rating: 4,
+                likes: 28,
+                userLiked: false,
+                author: "AUS移住者Ken",
+                image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=400&q=80",
+                created_at: "2026/06/03"
+            },
+            {
+                id: 8,
+                country: "エジプト",
+                title: "出された食事に『塩』を足すと、シェフへの侮辱になる！",
+                description: "エジプトの家庭や伝統的なレストランで出された料理に、味見もせずに（あるいは味見した後でも）塩やスパイスを勝手に追加することは、「この料理は不味くて食べられない」とシェフの腕を正面から否定することを意味し、非常に無作法とみなされます。味付けが薄いと感じても、まずはそのまま食べるのが礼儀です。",
+                advice: "もしどうしても調味料が必要な場合は、周りに見られないようにそっと足すか、現地流のレモン果汁を絞る方法を取りましょう。",
+                category: "food",
+                region: "africa",
+                lat: 30.0444, lng: 31.2357, // カイロ
+                rating: 5,
+                likes: 49,
+                userLiked: false,
+                author: "砂漠を旅するMimi",
+                image: "https://images.unsplash.com/photo-1539650116574-8efeb43e2750?auto=format&fit=crop&w=400&q=80",
+                created_at: "2026/06/05"
+            }
+        ];
+
+        // 状態管理変数
+        let bookmarkedIds = [1, 4]; // モック初期お気に入り
+        let currentFilterCategory = 'all';
+        let activeEpisodeId = null;
+        let map; // Leafletインスタンス
+        let markersGroup; // マーカーレイヤーグループ
+        
+        // タイルレイヤー（地図デザイン）のインスタンス保持用
+        let currentTileLayer;
+
+        // タイルURLとアトリビューションの一覧
+        const mapStyles = {
+            street: {
+                url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            },
+            satellite: {
+                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                attr: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+            },
+            dark: {
+                url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                attr: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            }
+        };
+
+        // 地域ごとの座標ジャンプ先マッピング（本物の緯度経度・ズームレベル）
+        const regionCoordinates = {
+            asia: { center: [19.0, 100.0], zoom: 4 },
+            europe: { center: [52.0, 12.0], zoom: 4 },
+            america: { center: [15.0, -90.0], zoom: 3 },
+            africa: { center: [3.0, 25.0], zoom: 3 },
+            oceania: { center: [-25.0, 135.0], zoom: 4 }
+        };
+
+        // 初期化処理
+        window.onload = function() {
+            lucide.createIcons();
+            initLeafletMap();
+            renderPins();
+            updateStats();
+            
+            // 最初は「ストリート」を選択状態にする
+            changeMapStyle('street');
+            
+            // 初期のウェルカムトースト表示
+            showToast("🌎 新機能：地図の切り替え機能！", "右下のコントローラーで地図をカラフルなスタイルや衛星写真に変更できます！", "bg-amber-600");
+        };
+
+        // --- Leaflet マップの初期化 ---
+        function initLeafletMap() {
+            // マップの作成（[緯度, 経度], ズームレベル）
+            map = L.map('map', {
+                center: [20.0, 15.0],
+                zoom: 3,
+                minZoom: 2,
+                maxZoom: 14,
+                zoomControl: false, // 独自コントロールを使用するため無効化
+                doubleClickZoom: false // ダブルクリックでピンを立てるため標準機能は無効化
+            });
+
+            // マーカーを管理するレイヤーグループの作成
+            markersGroup = L.layerGroup().addTo(map);
+
+            // 地図上のダブルクリックで新規ピン作成モーダルを開く
+            map.on('dblclick', function(e) {
+                const lat = e.latlng.lat;
+                const lng = e.latlng.lng;
+                openPostModalAtCoords(lat, lng);
+            });
+        }
+
+        // --- 地図デザイン（スタイル・色合い）の変更 ---
+        function changeMapStyle(styleKey) {
+            const style = mapStyles[styleKey];
+            if (!style) return;
+
+            // 既存のタイルレイヤーがあれば削除
+            if (currentTileLayer) {
+                map.removeLayer(currentTileLayer);
+            }
+
+            // 新しいスタイルレイヤーを追加
+            currentTileLayer = L.tileLayer(style.url, {
+                attribution: style.attr
+            }).addTo(map);
+
+            // ボタンのUIスタイル切り替え
+            ['street', 'satellite', 'dark'].forEach(key => {
+                const btn = document.getElementById(`style-${key}`);
+                if (key === styleKey) {
+                    btn.className = "px-3 py-1.5 rounded-lg font-black transition-all bg-amber-500 text-slate-900 shadow-md";
+                } else {
+                    btn.className = "px-3 py-1.5 rounded-lg font-bold transition-all text-slate-400 hover:text-white";
+                }
+            });
+
+            // サテライトなどの明るさに合わせてピンが見えやすくなるよう再描画
+            renderPins();
+        }
+
+        // --- 地図操作コントロール ---
+        function zoomInMap() {
+            map.zoomIn();
+        }
+
+        function zoomOutMap() {
+            map.zoomOut();
+        }
+
+        function resetMap() {
+            map.flyTo([20.0, 15.0], 3, {
+                animate: true,
+                duration: 1.0
+            });
+            closeDetailPanel();
+        }
+
+        function jumpToRegion(regionKey) {
+            const coords = regionCoordinates[regionKey];
+            if (coords) {
+                map.flyTo(coords.center, coords.zoom, {
+                    animate: true,
+                    duration: 1.2
+                });
+                showToast(`🌏 ${regionKey.toUpperCase()} 領域にズーム`, "このエリアのエピソードを表示します", "bg-indigo-600");
+            }
+        }
+
+        // --- ピン（マーカー）の描画 ---
+        function renderPins() {
+            // 既存のマーカーをすべてクリア
+            markersGroup.clearLayers();
+            
+            const filtered = episodes.filter(ep => {
+                // カテゴリマッチ
+                const categoryMatch = currentFilterCategory === 'all' || ep.category === currentFilterCategory;
+                
+                // キーワード検索マッチ
+                const searchWord = document.getElementById('search-input').value.toLowerCase();
+                const searchMatch = !searchWord || 
+                                    ep.country.toLowerCase().includes(searchWord) || 
+                                    ep.title.toLowerCase().includes(searchWord) || 
+                                    ep.description.toLowerCase().includes(searchWord);
+                return categoryMatch && searchMatch;
+            });
+
+            filtered.forEach(ep => {
+                // カテゴリに応じた絵文字とカラー定義
+                let colorClass = 'bg-amber-500 border-amber-300 text-slate-900';
+                let iconEmoji = '📍';
+                if (ep.category === 'food') { colorClass = 'bg-orange-500 border-orange-200 text-white'; iconEmoji = '🍔'; }
+                if (ep.category === 'taboo') { colorClass = 'bg-rose-600 border-rose-300 text-white'; iconEmoji = '🚫'; }
+                if (ep.category === 'history') { colorClass = 'bg-indigo-500 border-indigo-200 text-white'; iconEmoji = '📜'; }
+                if (ep.category === 'daily') { colorClass = 'bg-emerald-500 border-emerald-200 text-white'; iconEmoji = '🏠'; }
+
+                const isActive = ep.id === activeEpisodeId;
+                const activeClass = isActive ? 'custom-pin-active' : '';
+
+                // カスタム HTML DivIcon を作成
+                const customIcon = L.divIcon({
+                    className: 'custom-pin-container',
+                    html: `
+                        <div class="custom-pin ${colorClass} ${activeClass}">
+                            <span>${iconEmoji}</span>
+                            <span class="pin-label">${ep.country}</span>
+                        </div>
+                    `,
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 20]
+                });
+
+                // マーカーを作成しレイヤーグループに追加
+                const marker = L.marker([ep.lat, ep.lng], { icon: customIcon });
+                marker.on('click', (e) => {
+                    // 地図を少しマーカー位置に滑らかに寄せる
+                    map.panTo([ep.lat, ep.lng]);
+                    selectEpisode(ep.id);
+                });
+
+                markersGroup.addLayer(marker);
+            });
+
+            document.getElementById('active-pins-count').innerText = filtered.length;
+        }
+
+        function setCategoryFilter(category) {
+            currentFilterCategory = category;
+            
+            // ボタンのスタイルアップデート
+            document.querySelectorAll('.cat-filter-btn').forEach(btn => {
+                btn.className = "cat-filter-btn px-3 py-2 rounded-lg text-xs font-semibold text-center border bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-750 transition";
+            });
+            const activeBtn = document.getElementById(`cat-${category}`);
+            if (activeBtn) {
+                activeBtn.className = "cat-filter-btn px-3 py-2 rounded-lg text-xs font-semibold text-center border bg-amber-500/20 border-amber-500/50 text-amber-300 transition";
+            }
+
+            renderPins();
+        }
+
+        function filterPins() {
+            renderPins();
+        }
+
+        // --- エピソード詳細表示機能 ---
+        function selectEpisode(id) {
+            activeEpisodeId = id;
+            renderPins(); // アクティブピンを更新
+
+            const ep = episodes.find(e => e.id === id);
+            if (!ep) return;
+
+            const isBookmarked = bookmarkedIds.includes(ep.id);
+            const likeIconColor = ep.userLiked ? 'fill-rose-500 text-rose-500' : 'text-slate-400';
+            const bookmarkIconColor = isBookmarked ? 'fill-pink-500 text-pink-500' : 'text-slate-400';
+
+            // レーティングの星を生成
+            let stars = '';
+            for (let i = 0; i < 5; i++) {
+                stars += `<i data-lucide="star" class="w-4 h-4 ${i < ep.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-600'}"></i>`;
+            }
+
+            // 右側詳細パネルを開く
+            const panel = document.getElementById('detail-panel');
+            panel.style.width = '420px';
+
+            const content = document.getElementById('detail-content');
+            content.innerHTML = `
+                <!-- 閉じるボタンとアクションヘッダー -->
+                <div class="flex items-center justify-between border-b border-slate-700 pb-4 mb-4">
+                    <span class="bg-slate-900 text-amber-400 font-bold text-xs px-3 py-1 rounded-full border border-slate-700 uppercase tracking-wider flex items-center gap-1">
+                        <i data-lucide="map-pin" class="w-3.5 h-3.5"></i> ${ep.country}
+                    </span>
+                    <button onclick="closeDetailPanel()" class="text-slate-400 hover:text-white transition">
+                        <i data-lucide="chevrons-right" class="w-6 h-6"></i>
+                    </button>
+                </div>
+
+                <!-- メインビジュアル -->
+                <div class="relative w-full h-48 rounded-xl overflow-hidden mb-4 bg-slate-900 border border-slate-700">
+                    <img src="${ep.image}" alt="${ep.country}" class="w-full h-full object-cover">
+                    <div class="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent"></div>
+                    <div class="absolute bottom-3 left-3 flex items-center space-x-2">
+                        <span class="bg-slate-900/80 backdrop-blur-sm text-[10px] text-slate-300 px-2 py-0.5 rounded">
+                            投稿者: ${ep.author}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- タイトル・評価 -->
+                <h2 class="text-xl font-bold text-slate-100 mb-2 leading-tight">${ep.title}</h2>
+                <div class="flex items-center justify-between mb-4 bg-slate-900/50 p-2.5 rounded-lg border border-slate-750">
+                    <div class="flex items-center space-x-1">
+                        <span class="text-xs text-slate-400 mr-1">現地重要度:</span>
+                        <div class="flex">${stars}</div>
+                    </div>
+                    <span class="text-[10px] text-slate-500">${ep.created_at} 登録</span>
+                </div>
+
+                <!-- 本文 -->
+                <div class="space-y-4 flex-1 text-sm text-slate-300 leading-relaxed">
+                    <div class="bg-slate-900/20 border-l-4 border-amber-500 pl-3 py-1">
+                        <h4 class="text-xs font-bold text-amber-400 uppercase tracking-wide">現地の文化と歴史</h4>
+                    </div>
+                    <p class="whitespace-pre-wrap">${ep.description}</p>
+
+                    <!-- 旅人の知恵・アドバイス -->
+                    ${ep.advice ? `
+                        <div class="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3.5 mt-4">
+                            <h4 class="text-xs font-bold text-emerald-400 flex items-center gap-1.5 mb-1.5">
+                                <i data-lucide="compass" class="w-4 h-4"></i> 旅人への実践アドバイス
+                            </h4>
+                            <p class="text-xs text-slate-300">${ep.advice}</p>
+                        </div>
+                    ` : ''}
+                    
+                    <div class="text-[10px] text-slate-500 font-mono pt-2">
+                        位置情報: ${ep.lat.toFixed(4)}, ${ep.lng.toFixed(4)}
+                    </div>
+                </div>
+
+                <!-- インタラクティブ・フッター -->
+                <div class="border-t border-slate-700 pt-4 mt-6 flex items-center justify-between shrink-0">
+                    <div class="flex space-x-3">
+                        <!-- いいねボタン -->
+                        <button onclick="toggleLike(${ep.id})" class="flex items-center space-x-1.5 bg-slate-900 hover:bg-rose-500/10 border border-slate-700 hover:border-rose-500/30 px-3.5 py-2 rounded-lg text-xs transition">
+                            <i data-lucide="heart" class="w-4 h-4 ${likeIconColor}"></i>
+                            <span id="like-count-${ep.id}" class="font-bold">${ep.likes}</span>
+                        </button>
+                        <!-- ブックマークボタン -->
+                        <button onclick="toggleBookmark(${ep.id})" class="flex items-center space-x-1.5 bg-slate-900 hover:bg-pink-500/10 border border-slate-700 hover:border-pink-500/30 px-3.5 py-2 rounded-lg text-xs transition">
+                            <i data-lucide="bookmark" class="w-4 h-4 ${bookmarkIconColor}"></i>
+                            <span class="font-bold">保存</span>
+                        </button>
+                    </div>
+                    <!-- シェアボタン -->
+                    <button onclick="shareLink('${ep.country}', '${ep.title}')" class="text-slate-400 hover:text-white p-2 hover:bg-slate-750 rounded-lg transition" title="共有用リンクをコピー">
+                        <i data-lucide="share-2" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            `;
+            lucide.createIcons();
+        }
+
+        function closeDetailPanel() {
+            const panel = document.getElementById('detail-panel');
+            panel.style.width = '0px';
+            activeEpisodeId = null;
+            renderPins();
+        }
+
+        // --- いいね・ブックマークのトグル処理 ---
+        function toggleLike(id) {
+            const ep = episodes.find(e => e.id === id);
+            if (!ep) return;
+
+            ep.userLiked = !ep.userLiked;
+            if (ep.userLiked) {
+                ep.likes++;
+                showToast("💖 いいね！を送信しました", `${ep.country}の文化に共感しました！`, "bg-rose-600");
+            } else {
+                ep.likes--;
+            }
+            selectEpisode(id); // 再レンダリング
+        }
+
+        function toggleBookmark(id) {
+            const index = bookmarkedIds.indexOf(id);
+            const ep = episodes.find(e => e.id === id);
+            if (!ep) return;
+
+            if (index === -1) {
+                bookmarkedIds.push(id);
+                showToast("📌 ブックマークに追加しました", `マイページからいつでも見返せます。`, "bg-pink-600");
+            } else {
+                bookmarkedIds.splice(index, 1);
+                showToast("🗑️ ブックマークを解除しました", "", "bg-slate-700");
+            }
+            updateStats();
+            selectEpisode(id); // 再レンダリング
+        }
+
+        function showBookmarks() {
+            if (bookmarkedIds.length === 0) {
+                showToast("📌 ブックマークがありません", "気になるピンをブックマークしてみましょう！", "bg-slate-700");
+                return;
+            }
+            // 最初のお気に入りエピソードにジャンプして表示
+            const firstId = bookmarkedIds[0];
+            const ep = episodes.find(e => e.id === firstId);
+            if (ep) {
+                map.flyTo([ep.lat, ep.lng], 6, { animate: true, duration: 1.0 });
+                selectEpisode(firstId);
+                showToast("📖 ブックマークを読み込みました", `${ep.country}のエピソードを表示中`, "bg-pink-600");
+            }
+        }
+
+        // --- 新規エピソード投稿処理 ---
+        function toggleFormModal(show) {
+            const modal = document.getElementById('post-modal');
+            if (show) {
+                modal.classList.remove('hidden');
+            } else {
+                modal.classList.add('hidden');
+                document.getElementById('episode-form').reset();
+            }
+        }
+
+        function openPostModalAtCoords(lat, lng) {
+            document.getElementById('form-lat').value = lat;
+            document.getElementById('form-lng').value = lng;
+            document.getElementById('form-location-text').innerHTML = `📍 指定位置: <span class="text-amber-400 font-mono">緯度:${lat.toFixed(4)}, 経度:${lng.toFixed(4)}</span> に新規ピンを設置します。`;
+            toggleFormModal(true);
+        }
+
+        function submitEpisode(e) {
+            e.preventDefault();
+
+            const country = document.getElementById('form-country').value;
+            const category = document.getElementById('form-category').value;
+            const region = document.getElementById('form-region').value;
+            const title = document.getElementById('form-title').value;
+            const description = document.getElementById('form-description').value;
+            const advice = document.getElementById('form-advice').value;
+            const rating = parseInt(document.getElementById('form-rating').value);
+            const lat = parseFloat(document.getElementById('form-lat').value);
+            const lng = parseFloat(document.getElementById('form-lng').value);
+            
+            // 画像がない場合のデフォルトプレースホルダー
+            let image = document.getElementById('form-image').value;
+            if (!image) {
+                image = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=400&q=80";
+            }
+
+            const newId = episodes.length + 1;
+            const newEpisode = {
+                id: newId,
+                country,
+                title,
+                description,
+                advice,
+                category,
+                region,
+                lat, lng,
+                rating,
+                likes: 0,
+                userLiked: false,
+                author: "ゲスト冒険者 (あなた)",
+                image,
+                created_at: new Date().toLocaleDateString('ja-JP')
+            };
+
+            episodes.unshift(newEpisode); // 先頭に追加
+            
+            // 投稿後、地図上にそのエピソードを即表示
+            toggleFormModal(false);
+            renderPins();
+            updateStats();
+            
+            // ピンの位置へ滑らかにカメラを移動して詳細を開く
+            map.flyTo([lat, lng], 5, { animate: true, duration: 1.0 });
+            selectEpisode(newId);
+
+            showToast("🚀 新規投稿に成功しました！", `${country}の新しい文化のピンを地図に立てました。`, "bg-emerald-600");
+        }
+
+        // --- 状態更新・ユーティリティ ---
+        function updateStats() {
+            const userPostsCount = episodes.filter(e => e.author.includes("あなた")).length;
+            document.getElementById('user-posts-count').innerText = userPostsCount;
+            document.getElementById('user-bookmarks-count').innerText = bookmarkedIds.length;
+        }
+
+        function showToast(title, desc, bgClass = "bg-slate-800") {
+            const toast = document.getElementById('toast');
+            const tTitle = document.getElementById('toast-title');
+            const tDesc = document.getElementById('toast-desc');
+
+            tTitle.innerText = title;
+            tDesc.innerText = desc;
+            
+            // 背景クラスの設定
+            toast.className = `fixed bottom-6 right-6 z-[3000] transform transition-all duration-300 ease-out border border-slate-700 px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 pointer-events-auto text-slate-100 ${bgClass}`;
+            
+            // トーストを表示してスライドアップ
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 4000);
+        }
+
+        function shareLink(country, title) {
+            const mockUrl = `${window.location.origin}/#culture-${encodeURIComponent(country)}`;
+            
+            const input = document.createElement('input');
+            input.value = mockUrl;
+            document.body.appendChild(input);
+            input.select();
+            document.execCommand('copy');
+            document.body.removeChild(input);
+
+            showToast("🔗 リンクをクリップボードにコピー", `【${country}】${title}`, "bg-slate-750");
+        }
+    </script>
+</body>
+</html>
